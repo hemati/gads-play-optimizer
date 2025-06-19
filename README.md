@@ -12,12 +12,18 @@ pip install -r requirements.txt
 ```
 
 2. Enable Google Ads API and Google Play Developer API in your Google Cloud
-   project and download an OAuth client file. Place it in `config/client_secret.json`.
+   project. In **APIs & Services → Credentials** create an **OAuth client ID**
+   for a **Desktop** application and download the JSON file. Create a `config/`
+   directory and save the file as `config/client_secret.json`.
 
 3. Initialise credentials (opens a browser for login):
 ```bash
 python scripts/init_google_auth.py
 ```
+   Choose the Google account that has access to the Ads account and Play
+   Console you want to use. The granted tokens are saved under
+   `~/.config/gads-play-optimizer/credentials.json`. Re-run the script at any
+   time to authorise a different account.
 
 4. Copy `.env.example` to `.env` and set your `OPENAI_API_KEY`.
 
