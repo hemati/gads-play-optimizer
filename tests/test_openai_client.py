@@ -5,7 +5,9 @@ from app.schemas import RecommendationResponse
 class DummyResponse:
     class Choice:
         class Message:
-            function_call = type('F', (), {"arguments": '{"google_ads": [], "google_play": []}'})()
+            function_call = type(
+                "F", (), {"arguments": '{"google_ads": [], "google_play": []}'}
+            )()
 
         message = Message()
 
