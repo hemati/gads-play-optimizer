@@ -7,7 +7,7 @@ and generates daily optimisation suggestions via OpenAI.
 
 1. Install Python 3.11 and create a virtual environment:
 ```bash
-python -m venv .venv && source .venv/bin/activate
+conda create -n gads-play-optimizer python=3.12 -y
 pip install -r requirements.txt
 ```
 
