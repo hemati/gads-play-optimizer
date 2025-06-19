@@ -1,10 +1,4 @@
-# BaseSettings moved to `pydantic_settings` in pydantic v2
-from pydantic_settings import BaseSettings
+from dotenv import load_dotenv
 
-class Settings(BaseSettings):
-    openai_api_key: str
-
-    class Config:
-        env_file = '.env'
-
-settings = Settings()
+# Load environment variables from a .env file if present
+load_dotenv()
