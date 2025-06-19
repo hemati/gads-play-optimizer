@@ -30,7 +30,10 @@ def get_recommendations(payload: dict) -> RecommendationResponse:
         functions=[FUNCTION_SCHEMA],
         messages=[
             {"role": "system", "content": "You are a senior ASO & Google Ads coach."},
-            {"role": "user", "content": f"Here is our latest data:`{json.dumps(payload)}`"},
+            {
+                "role": "user",
+                "content": f"Here is our latest data:`{json.dumps(payload)}`",
+            },
         ],
     )
     arguments = response.choices[0].message.function_call.arguments

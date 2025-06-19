@@ -2,8 +2,6 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
-from google.ads.googleads.client import GoogleAdsClient
-from googleapiclient.discovery import build
 import pandas as pd
 
 from app.openai_client import get_recommendations
