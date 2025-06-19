@@ -7,7 +7,8 @@ from dotenv import load_dotenv
 from .schemas import RecommendationResponse
 
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Use a placeholder key during tests when OPENAI_API_KEY is undefined
+openai.api_key = os.getenv("OPENAI_API_KEY", "test")
 
 FUNCTION_SCHEMA = {
     "name": "recommend_actions",
