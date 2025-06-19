@@ -1,8 +1,9 @@
 import json
-import logging
 import os
-from dotenv import load_dotenv
+
 import openai
+from dotenv import load_dotenv
+
 from .schemas import RecommendationResponse
 
 load_dotenv()
@@ -20,6 +21,7 @@ FUNCTION_SCHEMA = {
         "required": ["google_ads", "google_play"],
     },
 }
+
 
 def get_recommendations(payload: dict) -> RecommendationResponse:
     response = openai.chat.completions.create(
