@@ -2,12 +2,14 @@ from pathlib import Path
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 
+mod_path = Path(__file__).resolve().parent
+
 SCOPES = [
     "https://www.googleapis.com/auth/adwords",
     "https://www.googleapis.com/auth/androidpublisher",
 ]
 
-CLIENT_SECRET = Path("config/client_secret.json")
+CLIENT_SECRET = mod_path.parent / "config/client_secret.json"
 TOKEN_STORE = Path.home() / ".config/gads-play-optimizer/credentials.json"
 
 

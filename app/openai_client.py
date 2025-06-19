@@ -4,7 +4,7 @@ import os
 import openai
 from dotenv import load_dotenv
 
-from .schemas import RecommendationResponse
+from schemas import RecommendationResponse
 
 load_dotenv()
 # Use a placeholder key during tests when OPENAI_API_KEY is undefined
