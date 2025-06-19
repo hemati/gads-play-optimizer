@@ -194,3 +194,4 @@ cython_debug/
 .cursorindexingignore
 .idea
 /config/client_secret.json
+/config/google-ads.yaml

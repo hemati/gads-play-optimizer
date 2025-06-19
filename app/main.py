@@ -14,9 +14,10 @@ from googleapiclient.discovery import build
 
 from .openai_client import get_recommendations
 
+mod_path = Path(__file__).resolve().parent
 
 TOKEN_FILE = Path.home() / ".config/gads-play-optimizer/credentials.json"
-ADS_CONFIG_FILE = Path("config/google-ads.yaml")
+ADS_CONFIG_FILE = mod_path.parent / "config/google-ads.yaml"
 
 
 def export_ads() -> pd.DataFrame:
@@ -27,7 +28,7 @@ def export_ads() -> pd.DataFrame:
     ``GOOGLE_ADS_CUSTOMER_ID`` environment variable.
     """
 
-    customer_id = os.environ["GOOGLE_ADS_CUSTOMER_ID"]
+    customer_id = os.environ["GOOGLE_ADS_CUSTOMER_ID"].replace("-", "")
     client = GoogleAdsClient.load_from_storage(str(ADS_CONFIG_FILE))
     ga_service = client.get_service("GoogleAdsService")
     query = (
