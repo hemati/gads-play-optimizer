@@ -1,11 +1,12 @@
 import json
 import logging
 import os
+from dotenv import load_dotenv
 import openai
 from .schemas import RecommendationResponse
-from config.settings import settings
 
-openai.api_key = settings.openai_api_key
+load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 FUNCTION_SCHEMA = {
     "name": "recommend_actions",
