@@ -5,5 +5,3 @@ google-auth-oauthlib==1.2.2
 pandas==2.3.0
 numpy==2.2.5
 python-dotenv==1.1.0
-fastapi==0.115.13
-uvicorn[standard]==0.34.3
