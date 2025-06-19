@@ -27,17 +27,16 @@ python scripts/init_google_auth.py
 
 4. Copy `.env.example` to `.env` and set your `OPENAI_API_KEY`.
 
-5. Run the Airflow pipeline locally:
+5. Run the pipeline locally:
 ```bash
-airflow standalone
+python -m app.main
 ```
-The DAG `airflow/daily_sync.py` fetches data and stores generated
-recommendations.
+This fetches data and prints generated recommendations.
 
-Alternatively, build and run the FastAPI service:
+You can also build and run the Docker image:
 ```bash
 docker build -t gads-play-optimizer .
-docker run -p 8080:8080 --env-file .env gads-play-optimizer
+docker run --env-file .env gads-play-optimizer
 ```
 
 ## License
