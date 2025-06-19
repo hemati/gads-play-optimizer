@@ -27,11 +27,15 @@ python scripts/init_google_auth.py
 
 4. Copy `.env.example` to `.env` and set your `OPENAI_API_KEY`.
 
-5. Run the pipeline locally:
+5. Set the `GOOGLE_ADS_CUSTOMER_ID` and `GOOGLE_PLAY_PACKAGE_NAME`
+   environment variables to point to your Ads account and Play app.
+
+6. Run the pipeline locally:
 ```bash
 python -m app.main
 ```
-This fetches data and prints generated recommendations.
+This fetches data and writes generated recommendations to
+`recommendations.json`.
 
 You can also build and run the Docker image:
 ```bash
