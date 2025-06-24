@@ -21,19 +21,21 @@ ADS_CONFIG_FILE = mod_path.parent / "config/google-ads.yaml"
 
 
 def export_ads() -> pd.DataFrame:
-    """Export basic campaign metrics from Google Ads.
+    """Export campaign metrics from Google Ads.
 
-    Returns a ``DataFrame`` with ``campaign_id``, ``impressions`` and ``clicks``
-    for the last seven days. The Google Ads customer ID must be provided via the
-    ``GOOGLE_ADS_CUSTOMER_ID`` environment variable.
+    Returns a ``DataFrame`` with ``campaign_id``, ``campaign_name``, ``impressions``,
+    ``clicks``, ``cost_micros`` and ``conversions`` for the last seven days. The
+    Google Ads customer ID must be provided via the ``GOOGLE_ADS_CUSTOMER_ID``
+    environment variable.
     """
 
     customer_id = os.environ["GOOGLE_ADS_CUSTOMER_ID"].replace("-", "")
     client = GoogleAdsClient.load_from_storage(str(ADS_CONFIG_FILE))
     ga_service = client.get_service("GoogleAdsService")
     query = (
-        "SELECT campaign.id, metrics.impressions, metrics.clicks "
-        "FROM campaign WHERE segments.date DURING LAST_7_DAYS"
+        "SELECT campaign.id, campaign.name, metrics.impressions, metrics.clicks, "
+        "metrics.cost_micros, metrics.conversions FROM campaign WHERE segments.date "
+        "DURING LAST_7_DAYS"
     )
     response = ga_service.search(customer_id=customer_id, query=query)
     rows: list[dict[str, Any]] = []
@@ -41,19 +43,23 @@ def export_ads() -> pd.DataFrame:
         rows.append(
             {
                 "campaign_id": row.campaign.id,
+                "campaign_name": row.campaign.name,
                 "impressions": row.metrics.impressions,
                 "clicks": row.metrics.clicks,
+                "cost_micros": row.metrics.cost_micros,
+                "conversions": row.metrics.conversions,
             }
         )
     return pd.DataFrame(rows)
 
 
 def export_play() -> pd.DataFrame:
-    """Export basic review information from Google Play.
+    """Export review information from Google Play.
 
     The Google Play package name must be supplied via the
-    ``GOOGLE_PLAY_PACKAGE_NAME`` environment variable. Only a subset of fields is
-    returned to keep the payload small.
+    ``GOOGLE_PLAY_PACKAGE_NAME`` environment variable. The returned
+    ``DataFrame`` contains ``review_id``, ``rating``, ``text`` and ``last_updated``
+    to give OpenAI more context while keeping the payload small.
     """
 
     package_name = os.environ["GOOGLE_PLAY_PACKAGE_NAME"]
@@ -62,8 +68,16 @@ def export_play() -> pd.DataFrame:
     result = service.reviews().list(packageName=package_name).execute()
     rows: list[dict[str, Any]] = []
     for review in result.get("reviews", []):
-        rating = review["comments"][0]["userComment"].get("starRating")
-        rows.append({"review_id": review["reviewId"], "rating": rating})
+        user_comment = review["comments"][0]["userComment"]
+        rating = user_comment.get("starRating")
+        rows.append(
+            {
+                "review_id": review["reviewId"],
+                "rating": rating,
+                "text": user_comment.get("text"),
+                "last_updated": user_comment.get("lastModified", {}).get("seconds"),
+            }
+        )
     return pd.DataFrame(rows)
 
 
