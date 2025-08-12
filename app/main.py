@@ -1,42 +1,45 @@
 # -*- coding: utf-8 -*-
-"""
-Ads‑only pipeline with 14‑day blocks (last 60 days).
 
-Erstellt **zeitliche Verlaufs‑Serien pro Asset**, sodass GPT Trends klar
-ablesen kann (Block 0 = ältester, Block n = jüngster). Zusätzlich:
-- Konto‑Meta (Zeitzone, Währung) für korrekte Datumsfenster & Formatierung.
-- Asset‑Details inkl. Typ (text/image/video) und Preview (Text, Image‑URL, YouTube‑ID).
-- Kampagnen‑Benchmarks (CTR, CPI) im jüngsten Block.
-- Post‑Processing der LLM‑Antwort: von Pipe‑Strings -> strukturierte Empfehlungen
+"""
+Ads-only pipeline with 14-day blocks (last 60 days).
+
+Erstellt zeitliche Verlaufs-Serien pro Asset (Block 0 = ältester, Block n = jüngster). Zusätzlich:
+
+* Konto-Meta (Zeitzone, Währung) für korrekte Datumsfenster & Formatierung.
+* Asset-Details inkl. Typ (text/image/video) und Preview (Text, Image-URL, YouTube-ID).
+* Kampagnen-Benchmarks (CTR, CPI) im jüngsten Block.
+* Post-Processing der LLM-Antwort: von Pipe-Strings -> strukturierte Empfehlungen
   mit sauberem Locator (campaign/ad_group/asset) und `kind`.
 
 Benötigt:
-- google-ads (GoogleAdsClient)
-- pandas
-- Python 3.9+ (für zoneinfo)
+
+* google-ads (GoogleAdsClient)
+* pandas
+* Python 3.9+ (für zoneinfo)
 """
 
 from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 from datetime import datetime, date, timedelta, timezone
+from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
-
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 from google.ads.googleads.client import GoogleAdsClient
 
-from .openai_client import get_recommendations
+from .openai_client import get_recommendations, _json_safe
 
 # -----------------------------------------------------------------------------
 # Config
 # -----------------------------------------------------------------------------
+
 mod_path = Path(__file__).resolve().parent
 ADS_CONFIG_FILE = mod_path.parent / "config/google-ads.yaml"
 CUSTOMER_ID = os.environ["GOOGLE_ADS_CUSTOMER_ID"].replace("-", "")
+
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -77,13 +80,13 @@ def _account_meta() -> dict:
 
 
 def _date_blocks(
-    block_len: int = 14,
-    total_days: int = 60,
-    tz_str: str = "UTC",
+        block_len: int = 14,
+        total_days: int = 60,
+        tz_str: str = "UTC",
 ) -> List[tuple[date, date]]:
     """
     Liefert (start, end) inklusiv, älteste → neueste.
-    Anker ist 'gestern' in Konto‑TZ (vermeidet halbfertigen heutigen Tag).
+    Anker ist 'gestern' in Konto-TZ (vermeidet halbfertigen heutigen Tag).
     """
     try:
         tz = ZoneInfo(tz_str)
@@ -91,8 +94,10 @@ def _date_blocks(
         tz = timezone.utc
 
     now_local = datetime.now(timezone.utc).astimezone(tz)
-    anchor = now_local.date() - timedelta(days=1)  # gestern in Konto‑TZ
-    n_blocks = max(1, total_days // block_len)
+    anchor = now_local.date() - timedelta(days=1)  # gestern in Konto-TZ
+
+    # ceil division für Anzahl Blöcke
+    n_blocks = max(1, -(-total_days // block_len))
 
     blocks: List[Tuple[date, date]] = []
     end = anchor
@@ -110,6 +115,7 @@ def _active_campaign_ids() -> set[int]:
     ga_service = client.get_service("GoogleAdsService")
     query = "SELECT campaign.id FROM campaign WHERE campaign.status = 'ENABLED'"
     return {int(row.campaign.id) for row in ga_service.search(customer_id=CUSTOMER_ID, query=query)}
+
 
 # -----------------------------------------------------------------------------
 # 1. Campaign KPIs per block
@@ -156,13 +162,14 @@ def export_ads_blocks(blocks: List[tuple[date, date]], campaign_ids: set[int]) -
     u = 1_000_000
     df["cost"] = df.cost_micros / u
     df["ctr"] = df.clicks / df.impressions.replace({0: pd.NA})
-    # CPA/ROAS auf Kampagnenebene (nicht zwingend identisch zu App‑Installs)
+    # CPA/ROAS auf Kampagnenebene
     df["cpa"] = df.cost / df.conversions.replace({0: pd.NA})
     df["roas"] = df.conv_value / df.cost.replace({0: pd.NA})
     return df
 
+
 # -----------------------------------------------------------------------------
-# 2. Asset KPIs per block (inkl. disabled/removed + Content‑Felder)
+# 2. Asset KPIs per block (inkl. disabled/removed + Content-Felder)
 # -----------------------------------------------------------------------------
 
 def export_asset_blocks(blocks: List[tuple[date, date]], campaign_ids: set[int]) -> pd.DataFrame:
@@ -178,7 +185,9 @@ def export_asset_blocks(blocks: List[tuple[date, date]], campaign_ids: set[int])
               campaign.name,
               ad_group.id,
               ad_group.name,
+              ad_group.status,
               ad_group_ad.resource_name,
+              ad_group_ad_asset_view.resource_name,
               asset.resource_name,
               asset.id,
               asset.name,
@@ -197,7 +206,7 @@ def export_asset_blocks(blocks: List[tuple[date, date]], campaign_ids: set[int])
               metrics.all_conversions
             FROM ad_group_ad_asset_view
             WHERE segments.date BETWEEN '{start}' AND '{end}'
-              AND campaign.id IN ({id_list})
+              AND campaign.id IN ({id_list}) AND ad_group.status = 'ENABLED'
         """
         for batch in ga_service.search_stream(customer_id=CUSTOMER_ID, query=query):
             for r in batch.results:
@@ -207,11 +216,13 @@ def export_asset_blocks(blocks: List[tuple[date, date]], campaign_ids: set[int])
                     "ad_group_id": int(r.ad_group.id),
                     "ad_group_name": r.ad_group.name,
                     "ad_group_ad_resource": r.ad_group_ad.resource_name,
+                    "agaa_resource": r.ad_group_ad_asset_view.resource_name,  # exakter Occurrence-Key
                     "asset_resource": r.asset.resource_name,
                     "asset_id": int(r.asset.id),
                     "asset_name": r.asset.name,
                     "asset_type": r.asset.type.name,  # TEXT_ASSET / IMAGE / YOUTUBE_VIDEO ...
-                    "field_type": r.ad_group_ad_asset_view.field_type.name,  # HEADLINE / DESCRIPTION / MARKETING_IMAGE ...
+                    "field_type": r.ad_group_ad_asset_view.field_type.name,
+                    # HEADLINE / DESCRIPTION / MARKETING_IMAGE ...
                     "performance_label": (
                         r.ad_group_ad_asset_view.performance_label.name
                         if r.ad_group_ad_asset_view.performance_label else None
@@ -241,8 +252,9 @@ def export_asset_blocks(blocks: List[tuple[date, date]], campaign_ids: set[int])
     df["cpi"] = df.cost / df.installs.replace({0: pd.NA})
     return df
 
+
 # -----------------------------------------------------------------------------
-# 3. Convert asset blocks -> time‑series structure
+# 3. Convert asset blocks -> time-series structure
 # -----------------------------------------------------------------------------
 
 def _kind(asset_type: str) -> str:
@@ -257,7 +269,7 @@ def _kind(asset_type: str) -> str:
 
 
 def _last_not_null(series: pd.Series) -> Optional[Any]:
-    """Letzter nicht‑Null Wert (für Preview etc.)."""
+    """Letzter nicht-Null Wert (für Preview etc.)."""
     non_null = series.dropna()
     return non_null.iloc[-1] if not non_null.empty else None
 
@@ -281,12 +293,12 @@ def _asset_time_series(df_assets: pd.DataFrame) -> List[Dict[str, Any]]:
         "performance_label",
     ]
 
-    # Gruppierung: pro (Campaign, AdGroup, Asset, FieldType) eine Serie
+    # Gruppierung: pro (Campaign, AdGroup, Asset, FieldType, Resourcen) eine Serie
     group_cols = [
         "campaign_id", "campaign_name",
         "ad_group_id", "ad_group_name",
         "asset_id", "asset_name", "asset_type", "field_type",
-        "asset_resource", "ad_group_ad_resource",
+        "asset_resource", "ad_group_ad_resource", "agaa_resource",
     ]
 
     for keys, grp in df_assets.groupby(group_cols, sort=False):
@@ -319,6 +331,7 @@ def _asset_time_series(df_assets: pd.DataFrame) -> List[Dict[str, Any]]:
             "field_type": keys[7],
             "asset_resource": keys[8],
             "ad_group_ad_resource": keys[9],
+            "agaa_resource": keys[10],
             "kind": kind,
             "preview": preview,
             "time_series": ts,
@@ -327,22 +340,23 @@ def _asset_time_series(df_assets: pd.DataFrame) -> List[Dict[str, Any]]:
 
     return series
 
+
 # -----------------------------------------------------------------------------
 # 4. Benchmarks & Payload
 # -----------------------------------------------------------------------------
 
 def _campaign_benchmarks(df_camp: pd.DataFrame, df_assets: pd.DataFrame) -> Dict[int, dict]:
-    """Jüngster Block: CTR aus Kampagnen‑Report, CPI aus Asset‑Installs."""
+    """Jüngster Block: CTR aus Kampagnen-Report, CPI aus Asset-Installs."""
     out: Dict[int, dict] = {}
     if df_camp.empty:
         return out
 
     last_idx = int(df_camp["block_index"].max())
 
-    # CTR/Cost/Clicks/Impr aus Campaign‑DF
+    # CTR/Cost/Clicks/Impr aus Campaign-DF
     last_c = df_camp.loc[df_camp.block_index == last_idx]
 
-    # CPI (Cost / Installs) aus Asset‑DF (gleicher Block)
+    # CPI (Cost / Installs) aus Asset-DF (gleicher Block)
     if not df_assets.empty and "block_index" in df_assets:
         last_a = df_assets.loc[df_assets.block_index == last_idx]
     else:
@@ -375,10 +389,10 @@ def _campaign_benchmarks(df_camp: pd.DataFrame, df_assets: pd.DataFrame) -> Dict
 
 
 def build_payload(
-    blocks: List[tuple[date, date]],
-    df_camp: pd.DataFrame,
-    df_assets: pd.DataFrame,
-    account: dict,
+        blocks: List[tuple[date, date]],
+        df_camp: pd.DataFrame,
+        df_assets: pd.DataFrame,
+        account: dict,
 ) -> dict:
     block_meta = [
         {"index": i, "start": str(s), "end": str(e)}
@@ -404,30 +418,48 @@ def build_payload(
     }
     return payload
 
+
 # -----------------------------------------------------------------------------
-# 5. LLM-Output anreichern (Pipe‑Strings -> strukturierte Empfehlungen)
+# 5. LLM-Output anreichern (Pipe-Strings -> strukturierte Empfehlungen)
 # -----------------------------------------------------------------------------
 
 def _index_assets_by_id(series_list: List[Dict[str, Any]]) -> Dict[int, List[Dict[str, Any]]]:
     """asset_id -> Liste von Vorkommen (falls Asset in mehreren AdGroups/Camps hängt)."""
     idx: Dict[int, List[Dict[str, Any]]] = {}
     for s in series_list:
+        # occurrence_key hilft Debug & Eindeutigkeit (asset+ad+field)
+        s["occurrence_key"] = f'{s.get("asset_resource")}||{s.get("agaa_resource")}||{s.get("field_type")}'
         idx.setdefault(int(s["asset_id"]), []).append(s)
     return idx
 
 
+def _norm(s: Optional[str]) -> str:
+    return (s or "").strip().casefold()
+
+
 def _pick_asset_occurrence(
-    candidates: List[Dict[str, Any]],
-    campaign_name_hint: Optional[str],
+        candidates: List[Dict[str, Any]],
+        campaign_name_hint: Optional[str],
 ) -> Dict[str, Any]:
-    """Wählt das passendste Vorkommen per Kampagnen‑Namenshinweis, sonst erstes."""
+    """Wählt das passendste Vorkommen per Kampagnen-Namenshinweis; sonst aktivstes."""
     if not candidates:
         return {}
+
     if campaign_name_hint:
-        for c in candidates:
-            if c.get("campaign_name") == campaign_name_hint:
-                return c
-    return candidates[0]
+        hint = _norm(campaign_name_hint)
+        exact = [c for c in candidates if _norm(c.get("campaign_name")) == hint]
+        if exact:
+            return exact[0]
+        part = [c for c in candidates if hint in _norm(c.get("campaign_name"))]
+        if part:
+            return part[0]
+
+    # Fallback: nimm das Vorkommen mit der stärksten jüngsten Aktivität (Clicks im letzten Block)
+    def last_block_clicks(c: Dict[str, Any]) -> int:
+        ts = c.get("time_series") or []
+        return int((ts[-1].get("clicks") or 0) if ts else 0)
+
+    return sorted(candidates, key=last_block_clicks, reverse=True)[0]
 
 
 def _parse_pipe_line(line: str) -> Dict[str, Any]:
@@ -436,17 +468,16 @@ def _parse_pipe_line(line: str) -> Dict[str, Any]:
     226330626500|BibleGPT - BR - PT|ACTION=scale|WHY=CPI 0.10 € << campaign avg 1.71 and CTR 4.55%|SUGGEST=Pin...
     """
     parts = [p.strip() for p in (line or "").split("|")]
-    parsed: Dict[str, Any] = {"raw": line, "id": None, "campaign_name": None, "action": None, "why": None, "suggest": None}
+    parsed: Dict[str, Any] = {"raw": line, "id": None, "campaign_name": None, "action": None, "why": None,
+                              "suggest": None}
 
     if parts:
-        # id versuchen
         try:
             parsed["id"] = int(parts[0])
         except Exception:
             parsed["id"] = None
     if len(parts) > 1:
         parsed["campaign_name"] = parts[1] or None
-    # Restliche Schlüssel extrahieren
     for p in parts[2:]:
         if p.startswith("ACTION="):
             parsed["action"] = p.replace("ACTION=", "").strip()
@@ -497,13 +528,13 @@ def _priority_from_action(action: Optional[str]) -> int:
 
 def enrich_recommendations(raw_recos: dict, payload: dict) -> dict:
     """
-    Nimmt die (evtl. string‑basierten) LLM‑Empfehlungen und baut eine saubere,
+    Nimmt die (evtl. string-basierten) LLM-Empfehlungen und baut eine saubere,
     eindeutig zuordenbare Struktur inkl. `kind`/Preview & Metriken.
     """
     series_list = payload.get("google_ads_assets_time_series", []) or []
     assets_by_id = _index_assets_by_id(series_list)
 
-    # Kampagnen‑Map (Name/ID)
+    # Kampagnen-Map (Name/ID)
     camp_blocks = payload.get("google_ads_campaigns_blocks", []) or []
     camp_name_by_id: Dict[int, str] = {}
     for r in camp_blocks:
@@ -533,7 +564,7 @@ def enrich_recommendations(raw_recos: dict, payload: dict) -> dict:
         level = "asset"
         metrics: Dict[str, Any] = {}
 
-        # Primär: Asset‑ID matchen
+        # Primär: Asset-ID matchen
         asset_occ = _pick_asset_occurrence(assets_by_id.get(rid, []), cname_hint)
         if asset_occ:
             camp_id = int(asset_occ["campaign_id"])
@@ -546,14 +577,16 @@ def enrich_recommendations(raw_recos: dict, payload: dict) -> dict:
                 "asset_id": int(asset_occ["asset_id"]),
                 "asset_resource": asset_occ.get("asset_resource"),
                 "ad_group_ad_resource": asset_occ.get("ad_group_ad_resource"),
+                "agaa_resource": asset_occ.get("agaa_resource"),
                 "kind": asset_occ.get("kind"),
                 "field_type": asset_occ.get("field_type"),
                 "preview": asset_occ.get("preview"),
+                "occurrence_key": asset_occ.get("occurrence_key"),
             }
             metrics = _metrics_from_asset_series(asset_occ, last_idx)
             metrics["benchmarks"] = benchmarks.get(camp_id)
         else:
-            # Fallback: vielleicht ist die ID eine Kampagnen‑ID → Kampagnen‑Level
+            # Fallback: vielleicht ist die ID eine Kampagnen-ID → Kampagnen-Level
             level = "campaign"
             camp_name = camp_name_by_id.get(rid) or cname_hint
             entity = {
@@ -561,7 +594,7 @@ def enrich_recommendations(raw_recos: dict, payload: dict) -> dict:
                 "campaign_id": rid,
                 "campaign_name": camp_name,
             }
-            # Kampagnen‑Benchmarks direkt anhängen
+            # Kampagnen-Benchmarks direkt anhängen
             metrics["benchmarks"] = benchmarks.get(int(rid)) if rid is not None else None
 
         structured.append({
@@ -582,10 +615,11 @@ def enrich_recommendations(raw_recos: dict, payload: dict) -> dict:
     final_obj = {
         "meta": payload.get("meta", {}),
         "recommendations_structured": structured,
-        "llm_raw": raw_recos,            # zur Nachvollziehbarkeit
+        "llm_raw": raw_recos,  # zur Nachvollziehbarkeit
         "google_play": raw_play or [],
     }
     return final_obj
+
 
 # -----------------------------------------------------------------------------
 # 6. Persistenz
@@ -593,7 +627,7 @@ def enrich_recommendations(raw_recos: dict, payload: dict) -> dict:
 
 def store_results(obj: dict, path: Path | None = None) -> None:
     dest = path or Path("recommendations.json")
-    dest.write_text(json.dumps(obj, indent=2, ensure_ascii=False))
+    dest.write_text(json.dumps(_json_safe(obj), indent=2, ensure_ascii=False))
     print(f"Saved recommendations to {dest.resolve()}")
 
 
@@ -611,8 +645,8 @@ def pipeline() -> None:
         print("No active campaigns found – exiting.")
         return
 
-    # 2) Blöcke (14‑Tage, 60 Tage zurück)
-    blocks = _date_blocks(block_len=14, total_days=14, tz_str=account["time_zone"])
+    # 2) Blöcke (14-Tage, 60 Tage zurück)
+    blocks = _date_blocks(block_len=7, total_days=21, tz_str=account["time_zone"])
 
     # 3) Exporte
     df_camp = export_ads_blocks(blocks, campaign_ids)
@@ -621,7 +655,7 @@ def pipeline() -> None:
     # 4) Payload bauen
     payload = build_payload(blocks, df_camp, df_assets, account)
 
-    # 5) LLM‑Empfehlungen
+    # 5) LLM-Empfehlungen
     recos = get_recommendations(payload)
 
     # 6) Anreichern und speichern
